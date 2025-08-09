@@ -3,11 +3,17 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
 import 'package:grabbit_project/utils/notification_storage.dart';
-
+import 'dart:async';
 
 
 
 class BleService {
+
+  Timer? _debounce;
+  String? _lastAccepted;                 // 마지막으로 처리한 JSON 문자열
+  DateTime _lastAcceptedAt = DateTime.fromMillisecondsSinceEpoch(0);
+  static const Duration _minGap = Duration(milliseconds: 800); // 디바운스 간격
+
   static final BleService _instance = BleService._internal();
   factory BleService() => _instance;
   BleService._internal();
@@ -61,28 +67,40 @@ class BleService {
             await _notifyChar!.setNotifyValue(true);
             _notifyChar!.value.listen((value) async {
               final decoded = utf8.decode(value);
-              print("📥 Notify 수신: $decoded");
+              if (decoded.trim().isEmpty) return;                    // 빈 notify 무시
 
-              if (onDataReceived != null) {
-                onDataReceived!(decoded);
+              // 완전 동일 payload 반복 차단
+              if (_lastAccepted != null && decoded == _lastAccepted) {
+                return;
               }
 
-              try {
-                final Map<String, dynamic> jsonData = jsonDecode(decoded);
+              // 짧은 시간 폭주 방지(디바운스)
+              _debounce?.cancel();
+              _debounce = Timer(_minGap, () async {
+                _lastAccepted = decoded;
+                _lastAcceptedAt = DateTime.now();
 
-                final newItem = NotificationItem(
-                  message: jsonData['이벤트'] ?? '',
-                  timestamp: DateTime.now(),
-                  state: jsonData['상태'] ?? '',
-                  detected: List<String>.from(jsonData['감지됨'] ?? []),
-                  missing: List<String>.from(jsonData['누락됨'] ?? []),
-                );
+                print("📥 Notify 수신: $decoded");
 
-                await NotificationStorage.addNotification(newItem);
-                print("📦 알림 저장 완료: $newItem");
-              } catch (e) {
-                print("❌ JSON 파싱 실패: $e");
-              }
+                // 외부 콜백
+                onDataReceived?.call(decoded);
+
+                // 저장(파싱 실패 시 조용히 무시)
+                try {
+                  final Map<String, dynamic> jsonData = jsonDecode(decoded);
+                  final newItem = NotificationItem(
+                    message: jsonData['이벤트'] ?? '',
+                    timestamp: DateTime.now(),
+                    state: jsonData['상태'] ?? '',
+                    detected: List<String>.from(jsonData['감지됨'] ?? []),
+                    missing: List<String>.from(jsonData['누락됨'] ?? []),
+                  );
+                  await NotificationStorage.addNotification(newItem);
+                  print("📦 알림 저장 완료: $newItem");
+                } catch (e) {
+                  print("❌ JSON 파싱 실패: $e");
+                }
+              });
             });
 
 
@@ -106,7 +124,7 @@ class BleService {
     };
 
     final String jsonStr = jsonEncode(payload);
-    await _writeChar!.write(utf8.encode(jsonStr), withoutResponse: true);
+    await _writeChar!.write(utf8.encode(jsonStr), withoutResponse: false);
     print("📤 루틴 전송 완료: $jsonStr");
   }
 

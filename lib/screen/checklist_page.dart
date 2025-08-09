@@ -8,7 +8,7 @@ import 'package:grabbit_project/utils/shared_preferences_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
-// ✅ 추가: 알림 기록 저장 헬퍼
+// 기록 저장
 import 'package:grabbit_project/utils/record_storage_helper.dart';
 
 class ChecklistPage extends StatefulWidget {
@@ -19,6 +19,16 @@ class ChecklistPage extends StatefulWidget {
 }
 
 class _ChecklistPageState extends State<ChecklistPage> {
+  // 최근 문 이벤트/상태
+  String? _lastEvent; // "문 열림" | "문 닫힘"
+  String? _lastState; // IDLE/GOING_OUT/AWAY/RETURNED
+
+  // 루틴 전송 직후, 문 이벤트가 바뀔 때까지 화면 반영/스낵바 억제
+  bool _suppressUntilDoorChange = false;
+
+  // AWAY 상태에서 “이전 감지 집합” (감지 수 감소 = 분실)
+  Set<String>? _awayDetectedSnapshot;
+
   final List<ChecklistItem> _items = [];
   final TextEditingController _textController = TextEditingController();
   String _selectedDay = DateFormat.E('ko_KR').format(DateTime.now());
@@ -30,7 +40,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
 
     final ble = BleService();
     ble.connect();
-    ble.onDataReceived = _handleNotifyData; // ✅ Notify 수신 → 자동 반영
+    ble.onDataReceived = _handleNotifyData; // Notify 수신 → 화면 반영
   }
 
   void _initializeForSelectedDay() {
@@ -45,7 +55,6 @@ class _ChecklistPageState extends State<ChecklistPage> {
 
   void _loadBleTags() async {
     final tags = await SharedPreferencesHelper.loadBleTags();
-
     setState(() {
       for (var tag in tags) {
         final alreadyExists = _items.any((item) => item.bleUuid == tag.uuid);
@@ -116,7 +125,6 @@ class _ChecklistPageState extends State<ChecklistPage> {
 
   Widget _buildSection(String title, List<ChecklistItem> items, {bool editable = false}) {
     if (items.isEmpty) return const SizedBox();
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -177,30 +185,28 @@ class _ChecklistPageState extends State<ChecklistPage> {
         .map((item) => item.name)
         .toList();
 
+    _suppressUntilDoorChange = true; // 문 이벤트 바뀔 때까지 일반 반영/스낵바 억제
     await BleService().sendRoutine(itemsToSend, "grabbit-user");
 
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('📤 루틴 정보를 ESP32에 전송했어요!'),
-          duration: const Duration(seconds: 2),
-        ),
+        const SnackBar(content: Text('📤 루틴 정보를 ESP32에 전송했어요!')),
       );
     }
   }
 
-  /// ✅ ESP32에서 Notify 받은 JSON 처리
+  /// ESP32에서 Notify 받은 JSON 처리
   void _handleNotifyData(String jsonStr) {
     try {
       final Map<String, dynamic> data = jsonDecode(jsonStr);
 
-      final List<String> detected = List<String>.from(data["감지됨"] ?? []);
-      final List<String> missed = List<String>.from(data["누락됨"] ?? []);
-      final String event = data["이벤트"] ?? "이벤트 없음";
-      final String state = data["상태"] ?? "UNKNOWN";
-      final String timestamp = DateTime.now().toIso8601String();
+      final event = data["이벤트"] as String? ?? "이벤트 없음";  // "문 열림"/"문 닫힘"
+      final state = data["상태"]  as String? ?? "UNKNOWN";
+      final detected = List<String>.from(data["감지됨"] ?? []);
+      final missed   = List<String>.from(data["누락됨"] ?? []);
+      final timestamp = DateTime.now().toIso8601String();
 
-      // ✅ 기록 저장
+      // ---------- 0) 기록은 항상 저장 ----------
       RecordStorageHelper.addRecord({
         "timestamp": timestamp,
         "event": event,
@@ -209,6 +215,47 @@ class _ChecklistPageState extends State<ChecklistPage> {
         "missed": missed,
       });
 
+      // ---------- 1) AWAY 중 “감지 수 감소” = 외출 중 분실 감지 ----------
+      if (state == "AWAY") {
+        final curr = detected.toSet();
+        if (_lastState != "AWAY") {
+          // AWAY에 갓 진입 → 스냅샷 초기화
+          _awayDetectedSnapshot = curr;
+        } else {
+          // 이전에 감지되던 것이 사라졌는지 비교
+          if (_awayDetectedSnapshot != null) {
+            final lostNow = _awayDetectedSnapshot!.difference(curr).toList();
+            if (lostNow.isNotEmpty && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('⚠️ 외출 중 분실 감지: ${lostNow.join(", ")}'),
+                  backgroundColor: Colors.orange.shade600,
+                  duration: const Duration(seconds: 3),
+                ),
+              );
+            }
+          }
+          _awayDetectedSnapshot = curr; // 스냅샷 갱신
+        }
+      }
+
+      // ---------- 2) 루틴 전송 직후, 문 이벤트가 바뀔 때까지 일반 반영 억제 ----------
+      final doorChanged = (_lastEvent == null) ? true : (_lastEvent != event);
+      if (_suppressUntilDoorChange && !doorChanged) {
+        // 분실 감지는 위에서 이미 처리했으니 여기서는 조용히 종료
+        return;
+      }
+      if (_suppressUntilDoorChange && doorChanged) {
+        _suppressUntilDoorChange = false; // 게이트 해제
+      }
+
+      // ---------- 3) 이벤트/상태 둘 다 이전과 같으면(중복) 일반 반영 생략 ----------
+      if (_lastEvent == event && _lastState == state) {
+        // 단, 위의 분실 감지는 이미 처리됨
+        return;
+      }
+
+      // ---------- 4) 화면 반영 ----------
       setState(() {
         for (var item in _items) {
           if (detected.contains(item.name)) {
@@ -221,17 +268,23 @@ class _ChecklistPageState extends State<ChecklistPage> {
         }
       });
 
-      if (missed.isNotEmpty && context.mounted) {
+      // 문 이벤트 변화 시 “감지 안 된 항목” 스낵바 (일반 케이스)
+      if (doorChanged && missed.isNotEmpty && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('⚠️ 감지 안 된 항목: ${missed.join(', ')}'),
             backgroundColor: Colors.red.shade400,
-            duration: const Duration(seconds: 4),
+            duration: const Duration(seconds: 3),
           ),
         );
       }
+
+      // ---------- 5) 마지막 상태 저장 ----------
+      _lastEvent = event;
+      _lastState = state;
     } catch (e) {
-      print("❌ Notify JSON 파싱 실패: $e");
+      // JSON 깨짐 등
+      debugPrint("❌ Notify JSON 파싱 실패: $e");
     }
   }
 
