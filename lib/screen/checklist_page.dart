@@ -1,92 +1,68 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
 import 'package:grabbit_project/models/item.dart';
 import 'package:grabbit_project/models/ble_tag.dart';
-import 'package:grabbit_project/service/routine_manager.dart';
 import 'package:grabbit_project/service/ble_service.dart';
+import 'package:grabbit_project/service/routine_manager.dart';
 import 'package:grabbit_project/utils/shared_preferences_helper.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-
-// 기록 저장
 import 'package:grabbit_project/utils/record_storage_helper.dart';
 
 class ChecklistPage extends StatefulWidget {
   const ChecklistPage({super.key});
-
   @override
   State<ChecklistPage> createState() => _ChecklistPageState();
 }
 
 class _ChecklistPageState extends State<ChecklistPage> {
-  // 최근 문 이벤트/상태
-  String? _lastEvent; // "문 열림" | "문 닫힘"
-  String? _lastState; // IDLE/GOING_OUT/AWAY/RETURNED
+  // 중복 알림/깜빡임 방지 상태
+  String? _lastEvent;   // "문 열림"/"문 닫힘"
+  String? _lastState;   // IDLE/GOING_OUT/AWAY/RETURNED
+  bool _suppressUntilDoorChange = false; // 루틴 전송 직후 문 이벤트 변할 때까지 화면 반영 막기
 
-  // 루틴 전송 직후, 문 이벤트가 바뀔 때까지 화면 반영/스낵바 억제
-  bool _suppressUntilDoorChange = false;
-
-  // AWAY 상태에서 “이전 감지 집합” (감지 수 감소 = 분실)
-  Set<String>? _awayDetectedSnapshot;
-
-  final List<ChecklistItem> _items = [];
-  final TextEditingController _textController = TextEditingController();
+  final List<ChecklistItem> _routineItems = [];
   String _selectedDay = DateFormat.E('ko_KR').format(DateTime.now());
 
   @override
   void initState() {
     super.initState();
-    _initializeForSelectedDay();
+    _loadRoutineForSelectedDay();
 
     final ble = BleService();
     ble.connect();
-    ble.onDataReceived = _handleNotifyData; // Notify 수신 → 화면 반영
+    ble.onDataReceived = _handleNotifyData;
   }
 
-  void _initializeForSelectedDay() {
-    _items.clear();
-    _items.addAll([
-      ChecklistItem(name: '우산', isSuggested: true),
-      ChecklistItem(name: '손세정제', isSuggested: true),
-    ]);
-    _loadBleTags();
-    _loadExtraItems();
-  }
+  // 요일 변경 시 루틴만 로드 (추가/추천 섹션 X)
+  Future<void> _loadRoutineForSelectedDay() async {
+    _routineItems.clear();
 
-  void _loadBleTags() async {
-    final tags = await SharedPreferencesHelper.loadBleTags();
+    // 1) 루틴 이름들 (요일별)
+    final names = RoutineManager().getItemsForDay(_selectedDay).map((e) => e.name).toList();
+
+    // 2) 저장된 BLE 태그 불러와서 "이름→UUID" 매핑
+    final List<BleTag> tags = await SharedPreferencesHelper.loadBleTags();
+    final Map<String, String> nameToUuid = {
+      for (final t in tags) t.name: t.uuid,
+    };
+
+    // 3) 화면용 아이템 구성 (루틴에 없거나 BLE 태그 없는 건 uuid null)
     setState(() {
-      for (var tag in tags) {
-        final alreadyExists = _items.any((item) => item.bleUuid == tag.uuid);
-        if (!alreadyExists) {
-          _items.add(ChecklistItem(name: tag.name, bleUuid: tag.uuid));
-        }
+      for (final name in names) {
+        _routineItems.add(
+          ChecklistItem(
+            name: name,
+            bleUuid: nameToUuid[name], // null일 수 있음
+            isRoutine: true,
+          ),
+        );
       }
     });
   }
 
-  Future<void> _loadExtraItems() async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'extraItems_${_engWeekday()}';
-    final saved = prefs.getStringList(key) ?? [];
-    setState(() {
-      for (var name in saved) {
-        _items.add(ChecklistItem(name: name));
-      }
-    });
-  }
-
-  Future<void> _saveExtraItems() async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'extraItems_${_engWeekday()}';
-    final extraItems = _items
-        .where((i) => !i.isRoutine && !i.isSuggested && i.bleUuid == null)
-        .map((e) => e.name)
-        .toList();
-    await prefs.setStringList(key, extraItems);
-  }
-
-  String _engWeekday() {
+  // 요일 한글 → 영문 (RoutineManager가 필요하면 사용)
+  String _engWeekday(String kr) {
     const map = {
       '월': 'Monday',
       '화': 'Tuesday',
@@ -96,63 +72,89 @@ class _ChecklistPageState extends State<ChecklistPage> {
       '토': 'Saturday',
       '일': 'Sunday',
     };
-    return map[_selectedDay]!;
+    return map[kr]!;
   }
 
-  void _toggleItem(ChecklistItem item) {
-    setState(() {
-      item.isChecked = !item.isChecked;
-    });
-  }
+  // BLE로 현재 루틴만 전송 (BLE 태그가 있는 항목만)
+  Future<void> _sendRoutineToEsp32() async {
+    final itemsToSend = _routineItems
+        .where((i) => i.bleUuid != null)
+        .map((i) => i.name)
+        .toList();
 
-  void _addItem() {
-    final text = _textController.text.trim();
-    if (text.isNotEmpty) {
-      setState(() {
-        _items.add(ChecklistItem(name: text));
-        _textController.clear();
-      });
-      _saveExtraItems();
+    _suppressUntilDoorChange = true;
+    await BleService().sendRoutine(itemsToSend, "grabbit-user");
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('📤 루틴 정보를 ESP32에 전송했어요!')),
+      );
     }
   }
 
-  void _deleteItem(ChecklistItem item) {
-    setState(() {
-      _items.remove(item);
-    });
-    _saveExtraItems();
-  }
+  /// ESP32 Notify 수신 처리 (루틴 섹션만 반영)
+  void _handleNotifyData(String jsonStr) {
+    try {
+      final Map<String, dynamic> data = jsonDecode(jsonStr);
 
-  Widget _buildSection(String title, List<ChecklistItem> items, {bool editable = false}) {
-    if (items.isEmpty) return const SizedBox();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        ),
-        ...items.map((item) => CheckboxListTile(
-          title: Text(
-            item.name,
-            style: TextStyle(
-              color: item.bleUuid != null && !item.isBleDetected ? Colors.red : null,
-              fontWeight: item.isBleDetected ? FontWeight.bold : FontWeight.normal,
-            ),
+      final event = data["이벤트"] as String? ?? "이벤트 없음";  // "문 열림"/"문 닫힘"
+      final state = data["상태"]  as String? ?? "UNKNOWN";
+
+      // 루틴 전송 직후에는 문 이벤트가 바뀔 때까지 무시
+      if (_suppressUntilDoorChange) {
+        final doorChanged = (_lastEvent == null) ? true : (_lastEvent != event);
+        if (!doorChanged) return;
+        _suppressUntilDoorChange = false;
+      }
+
+      // 같은 이벤트/상태면 무시
+      if (_lastEvent == event && _lastState == state) return;
+
+      _lastEvent = event;
+      _lastState = state;
+
+      final detected = List<String>.from(data["감지됨"] ?? []);
+      final missed   = List<String>.from(data["누락됨"] ?? []);
+      final timestamp = DateTime.now().toIso8601String();
+
+      // 기록 저장
+      RecordStorageHelper.addRecord({
+        "timestamp": timestamp,
+        "event": event,
+        "state": state,
+        "detected": detected,
+        "missed": missed,
+      });
+
+      // 화면 반영: 루틴 항목만
+      setState(() {
+        for (final item in _routineItems) {
+          if (detected.contains(item.name)) {
+            item.isChecked = true;
+            item.isBleDetected = true;
+          } else if (missed.contains(item.name)) {
+            item.isChecked = false;
+            item.isBleDetected = false;
+          } else {
+            // 감지도 누락도 안온 항목은 상태 유지
+          }
+        }
+      });
+
+      // 스낵바: 문 이벤트 변화가 있을 때만, 누락 있을 때 띄움
+      if (missed.isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⚠️ 감지 안 된 항목: ${missed.join(', ')}'),
+            backgroundColor: Colors.red.shade400,
+            duration: const Duration(seconds: 3),
           ),
-          subtitle: item.isBleDetected ? const Text('✅ BLE 감지됨') : null,
-          value: item.isChecked,
-          onChanged: (_) => _toggleItem(item),
-          secondary: editable
-              ? IconButton(
-            icon: const Icon(Icons.delete),
-            onPressed: () => _deleteItem(item),
-          )
-              : null,
-        )),
-      ],
-    );
+        );
+      }
+    } catch (e) {
+      // 파싱 실패는 조용히 로그만
+      // print("❌ Notify JSON 파싱 실패: $e");
+    }
   }
 
   Widget _buildDaySelector() {
@@ -166,11 +168,9 @@ class _ChecklistPageState extends State<ChecklistPage> {
           return ChoiceChip(
             label: Text(day),
             selected: isSelected,
-            onSelected: (_) {
-              setState(() {
-                _selectedDay = day;
-                _initializeForSelectedDay();
-              });
+            onSelected: (_) async {
+              setState(() => _selectedDay = day);
+              await _loadRoutineForSelectedDay();
             },
             selectedColor: Colors.green,
           );
@@ -179,123 +179,47 @@ class _ChecklistPageState extends State<ChecklistPage> {
     );
   }
 
-  void _sendRoutineToEsp32() async {
-    final itemsToSend = _items
-        .where((item) => item.bleUuid != null)
-        .map((item) => item.name)
-        .toList();
-
-    _suppressUntilDoorChange = true; // 문 이벤트 바뀔 때까지 일반 반영/스낵바 억제
-    await BleService().sendRoutine(itemsToSend, "grabbit-user");
-
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('📤 루틴 정보를 ESP32에 전송했어요!')),
+  Widget _buildRoutineSection() {
+    if (_routineItems.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Text('루틴에 등록된 물건이 없어요. 설정 > 루틴 설정에서 추가해 주세요.'),
       );
     }
-  }
 
-  /// ESP32에서 Notify 받은 JSON 처리
-  void _handleNotifyData(String jsonStr) {
-    try {
-      final Map<String, dynamic> data = jsonDecode(jsonStr);
-
-      final event = data["이벤트"] as String? ?? "이벤트 없음";  // "문 열림"/"문 닫힘"
-      final state = data["상태"]  as String? ?? "UNKNOWN";
-      final detected = List<String>.from(data["감지됨"] ?? []);
-      final missed   = List<String>.from(data["누락됨"] ?? []);
-      final timestamp = DateTime.now().toIso8601String();
-
-      // ---------- 0) 기록은 항상 저장 ----------
-      RecordStorageHelper.addRecord({
-        "timestamp": timestamp,
-        "event": event,
-        "state": state,
-        "detected": detected,
-        "missed": missed,
-      });
-
-      // ---------- 1) AWAY 중 “감지 수 감소” = 외출 중 분실 감지 ----------
-      if (state == "AWAY") {
-        final curr = detected.toSet();
-        if (_lastState != "AWAY") {
-          // AWAY에 갓 진입 → 스냅샷 초기화
-          _awayDetectedSnapshot = curr;
-        } else {
-          // 이전에 감지되던 것이 사라졌는지 비교
-          if (_awayDetectedSnapshot != null) {
-            final lostNow = _awayDetectedSnapshot!.difference(curr).toList();
-            if (lostNow.isNotEmpty && context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('⚠️ 외출 중 분실 감지: ${lostNow.join(", ")}'),
-                  backgroundColor: Colors.orange.shade600,
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-            }
-          }
-          _awayDetectedSnapshot = curr; // 스냅샷 갱신
-        }
-      }
-
-      // ---------- 2) 루틴 전송 직후, 문 이벤트가 바뀔 때까지 일반 반영 억제 ----------
-      final doorChanged = (_lastEvent == null) ? true : (_lastEvent != event);
-      if (_suppressUntilDoorChange && !doorChanged) {
-        // 분실 감지는 위에서 이미 처리했으니 여기서는 조용히 종료
-        return;
-      }
-      if (_suppressUntilDoorChange && doorChanged) {
-        _suppressUntilDoorChange = false; // 게이트 해제
-      }
-
-      // ---------- 3) 이벤트/상태 둘 다 이전과 같으면(중복) 일반 반영 생략 ----------
-      if (_lastEvent == event && _lastState == state) {
-        // 단, 위의 분실 감지는 이미 처리됨
-        return;
-      }
-
-      // ---------- 4) 화면 반영 ----------
-      setState(() {
-        for (var item in _items) {
-          if (detected.contains(item.name)) {
-            item.isChecked = true;
-            item.isBleDetected = true;
-          } else if (missed.contains(item.name)) {
-            item.isChecked = false;
-            item.isBleDetected = false;
-          }
-        }
-      });
-
-      // 문 이벤트 변화 시 “감지 안 된 항목” 스낵바 (일반 케이스)
-      if (doorChanged && missed.isNotEmpty && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('⚠️ 감지 안 된 항목: ${missed.join(', ')}'),
-            backgroundColor: Colors.red.shade400,
-            duration: const Duration(seconds: 3),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Text('✅ 루틴 물건 ($_selectedDay요일)',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        ),
+        ..._routineItems.map((item) => CheckboxListTile(
+          title: Text(
+            item.name,
+            style: TextStyle(
+              color: (item.bleUuid != null && !item.isBleDetected) ? Colors.red : null,
+              fontWeight: item.isBleDetected ? FontWeight.bold : FontWeight.normal,
+            ),
           ),
-        );
-      }
-
-      // ---------- 5) 마지막 상태 저장 ----------
-      _lastEvent = event;
-      _lastState = state;
-    } catch (e) {
-      // JSON 깨짐 등
-      debugPrint("❌ Notify JSON 파싱 실패: $e");
-    }
+          subtitle: item.isBleDetected
+              ? const Text('✅ BLE 감지됨')
+              : (item.bleUuid == null ? const Text('⚠️ 이 항목은 BLE 태그가 설정되지 않았어요') : null),
+          value: item.isChecked,
+          onChanged: (_) {
+            setState(() => item.isChecked = !item.isChecked);
+          },
+        )),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final today = DateTime.now();
     final formattedDate = DateFormat('yyyy/MM/dd (E)', 'ko_KR').format(today);
-
-    final routineItems = RoutineManager().getItemsForDay(_selectedDay);
-    final additionalItems = _items.where((i) => !i.isRoutine && !i.isSuggested).toList();
-    final suggestedItems = _items.where((i) => i.isSuggested).toList();
 
     return Scaffold(
       appBar: AppBar(title: Text('오늘의 체크리스트 - $formattedDate')),
@@ -313,33 +237,10 @@ class _ChecklistPageState extends State<ChecklistPage> {
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _textController,
-                    decoration: const InputDecoration(
-                      hintText: '추가 물건 입력',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: _addItem,
-                  child: const Text('추가'),
-                ),
-              ],
-            ),
-          ),
           Expanded(
             child: ListView(
               children: [
-                _buildSection('✅ 루틴 물건 ($_selectedDay요일)', routineItems),
-                _buildSection('➕ 추가 물건', additionalItems, editable: true),
-                _buildSection('🌟 추천 물건', suggestedItems),
+                _buildRoutineSection(),
               ],
             ),
           ),

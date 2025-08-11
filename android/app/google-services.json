@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "114707951091",
+    "project_id": "grabbit-3dbef",
+    "storage_bucket": "grabbit-3dbef.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:114707951091:android:de938db9363e7cb61c7686",
+        "android_client_info": {
+          "package_name": "com.example.grabbit_project"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyACkoLF8fDR_T2ialYjLCJEB7enqrmgd7Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
