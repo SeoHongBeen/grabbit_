@@ -22,10 +22,11 @@ android {
 
     defaultConfig {
         applicationId = "com.example.grabbit_project"
-        minSdk = 21           // Firestore 쓰다 에러 나면 23으로 올려
+        minSdk = 23          // Firestore 쓰다 에러 나면 23으로 올려
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        multiDexEnabled = true
     }
 
     buildTypes {

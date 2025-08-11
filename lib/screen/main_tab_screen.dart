@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'checklist_page.dart';
 import 'record_page.dart';
 import 'settings/settings_page.dart';
+import 'package:grabbit_project/screen/daily_suggest.dart';
 
 class MainTabScreen extends StatefulWidget {
   const MainTabScreen({super.key});
@@ -18,6 +19,15 @@ class _MainTabScreenState extends State<MainTabScreen> {
     RecordPage(),
     SettingsPage(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // uid는 로그인 정보에서 가져오거나 로컬 저장된 사용자 ID 사용
+      DailySuggest.showIfNeeded(context, 'user123');
+    });
+  }
 
   void _onItemTapped(int index) {
     setState(() {
