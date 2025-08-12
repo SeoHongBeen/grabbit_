@@ -14,11 +14,9 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
   bool isRecommendationOn = true;
   bool isReminderTextOn = true;
 
-  // 문구 템플릿
   final _goingOutCtrl = TextEditingController();
   final _returnedCtrl = TextEditingController();
 
-  // 기본 템플릿(서비스와 동일)
   static const String _defaultGoingOut =
       '앗! 챙기셨나요? 🐰 {items} · 외출 중';
   static const String _defaultReturned =
@@ -125,7 +123,6 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
 
           const Divider(height: 24),
 
-          // ===== 인앱 알림 문구 커스터마이즈 =====
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
             child: Text(
