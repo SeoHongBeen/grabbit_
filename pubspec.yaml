@@ -22,13 +22,10 @@ dependencies:
   # Firebase
   firebase_core: ^4.0.0
   cloud_firestore: ^6.0.0
-  firebase_auth: ^6.0.0    # 최신 안정권 (자동 호환)
+  firebase_auth: ^6.0.0   
   flutter_local_notifications: 17.2.3
 
-  # 로컬 패스 말고, 호환되는 공식 패키지 사용
 
-  # 푸시 꼭 필요할 때만 추가 (firebase_core 4.x 호환)
-  # firebase_messaging: ^16.0.0
 
 flutter:
   uses-material-design: true
