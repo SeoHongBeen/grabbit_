@@ -19,7 +19,6 @@ class _MainTabScreenState extends State<MainTabScreen> {
   @override
   void initState() {
     super.initState();
-    // 프레임 이후 실행 + State.mounted로만 체크 (context.mounted 쓰지 않음)
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
 
