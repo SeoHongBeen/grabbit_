@@ -9,7 +9,7 @@ class WeatherService {
 
   static Future<Map<String, dynamic>> fetchWeather() async {
     try {
-      // 위치 권한 요청
+      //위치
       final permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
         return {'temp': 0.0, 'weather': 'Unknown', 'uv': 0.0};
@@ -20,7 +20,7 @@ class WeatherService {
       final lat = position.latitude;
       final lon = position.longitude;
 
-      // 날씨 정보
+      //날씨
       final weatherRes = await http.get(Uri.parse(
           '$_weatherUrl?lat=$lat&lon=$lon&units=metric&lang=kr&appid=$_apiKey'));
       final weatherData = jsonDecode(weatherRes.body);
@@ -28,7 +28,7 @@ class WeatherService {
       final temp = weatherData['main']['temp'] ?? 0.0;
       final weatherMain = weatherData['weather'][0]['main'] ?? 'Unknown';
 
-      // 자외선 정보
+      //자외선
       final uvRes = await http.get(Uri.parse(
           'https://api.openweathermap.org/data/2.5/onecall?lat=$lat&lon=$lon&exclude=hourly,daily,minutely,alerts&appid=$_apiKey'));
       final uvData = jsonDecode(uvRes.body);
