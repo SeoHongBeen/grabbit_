@@ -1,97 +1,197 @@
 // lib/service/recommendation_service.dart
-//
-// Firestore에 Colab이 쓴 추천 데이터를 읽어오는 서비스.
-// 기본 구조:
-//   users/{uid}/recommendations/{autoId or yyyy-MM-dd}
-//     - items: [{id, name, required}, ...]
-//     - updatedAt: serverTimestamp()
-
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
+/// Firestore 양쪽 스키마를 모두 지원:
+///  A) 기존 앱 스키마: users/{uid}/recommendations/today  { createdAt, items:[{name,required}] }
+///  B) 현재 DB 스키마: recommendations/{docId}  { predicted_missing:[String], timestamp:String|Timestamp }
+///
+/// 우선순위: A가 있으면 A 사용 → 없으면 B 사용.
+/// B의 docId는 기본 'grabbit-user'를 본다(필요하면 파라미터로 바꿔 호출).
 class RecommendationService {
-  RecommendationService._();
-  static final FirebaseFirestore _db = FirebaseFirestore.instance;
+  static final _db = FirebaseFirestore.instance;
 
-  /// 최신 추천 1건(items 배열)만 반환.
-  /// 없으면 빈 리스트.
-  static Future<List<Map<String, dynamic>>> fetchLatest(String uid) async {
-    final qs = await _db
-        .collection('users').doc(uid)
-        .collection('recommendations')
-        .orderBy('updatedAt', descending: true)
-        .limit(1)
-        .get();
+  /// 외부에서 바꾸고 싶으면 이 값만 수정하거나, fetchLatest 호출 시 인자로 넘겨.
+  static const String _defaultGlobalDocId = 'grabbit-user';
 
-    if (qs.docs.isEmpty) return [];
-    final data = qs.docs.first.data();
-    final raw = (data['items'] ?? []) as List;
-    // List<dynamic> -> List<Map<String, dynamic>>
-    return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-  }
+  // ────────────────────────────────────────────────────────────────────────────
+  // Public API
+  // ────────────────────────────────────────────────────────────────────────────
 
-  /// 요일/시간대 기준으로 가장 최신 추천을 가져오고 싶으면 사용.
-  /// 예: weekday='tue', timeslot='morning'
-  static Future<List<Map<String, dynamic>>> fetchBySlot(
+  /// 오늘 추천(이름/required)을 가져온다.
+  /// 1) users/{uid}/recommendations/today → items 배열
+  /// 2) (비어있으면) recommendations/{globalDocId} → predicted_missing 배열
+  ///
+  /// [onlyToday]가 true면 timestamp가 오늘이 아닐 경우 빈 배열 반환.
+  /// false면 오늘이 아니어도 최신 예측을 사용.
+  static Future<List<Map<String, dynamic>>> fetchLatest(
       String uid, {
-        required String weekday, // mon,tue,wed,thu,fri,sat,sun
-        required String timeslot, // morning, afternoon, evening ...
+        String? globalDocId,
+        bool onlyToday = true,
       }) async {
-    final qs = await _db
-        .collection('users').doc(uid)
+    try {
+      // 1) 기존 앱 스키마 우선
+      final a = await _readUserToday(uid);
+      if (a.isNotEmpty) return a;
+
+      // 2) 글로벌(현재 DB) 스키마 폴백
+      final docId = (globalDocId ?? _defaultGlobalDocId).trim();
+      final b = await _readGlobalPredicted(docId, onlyToday: onlyToday);
+      return b;
+    } catch (e, st) {
+      if (kDebugMode) {
+        print('❌ fetchLatest error: $e\n$st');
+      }
+      return const [];
+    }
+  }
+
+  /// 이름 배열만 뽑아서 쓰기 좋은 헬퍼.
+  static Future<List<String>> fetchLatestNames(
+      String uid, {
+        String? globalDocId,
+        bool onlyToday = true,
+      }) async {
+    final items = await fetchLatest(
+      uid,
+      globalDocId: globalDocId,
+      onlyToday: onlyToday,
+    );
+    return items
+        .map((m) => (m['name'] ?? '').toString().trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
+
+  /// 기존 앱 스키마(A안)에 오늘 문서가 없으면 만들어 준다.
+  static Future<void> pushIfNotExists(
+      String uid,
+      List<Map<String, dynamic>> items,
+      ) async {
+    try {
+      final ref = _userTodayRef(uid);
+      final snap = await ref.get();
+      if (snap.exists) return;
+
+      await ref.set({
+        'createdAt': FieldValue.serverTimestamp(),
+        'items': items
+            .map((m) => {
+          'name': (m['name'] ?? '').toString(),
+          'required': m['required'] == true,
+        })
+            .toList(),
+      });
+    } catch (e, st) {
+      if (kDebugMode) {
+        print('❌ pushIfNotExists error: $e\n$st');
+      }
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Internal helpers
+  // ────────────────────────────────────────────────────────────────────────────
+
+  static DocumentReference<Map<String, dynamic>> _userTodayRef(String uid) {
+    return _db
+        .collection('users')
+        .doc(uid)
         .collection('recommendations')
-        .where('weekday', isEqualTo: weekday)
-        .where('timeslot', isEqualTo: timeslot)
-        .orderBy('updatedAt', descending: true)
-        .limit(1)
-        .get();
-
-    if (qs.docs.isEmpty) return [];
-    final data = qs.docs.first.data();
-    final raw = (data['items'] ?? []) as List;
-    return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        .doc('today');
   }
 
-  /// 테스트/디버그용: 추천이 없을 때 임시 데이터 한 번 써넣기.
-  /// (앱에서 직접 쓰지 말고 개발 중 확인용으로만!)
-  static Future<void> seedIfEmpty(String uid) async {
-    final ref = _db
-        .collection('users').doc(uid)
-        .collection('recommendations');
+  /// A) users/{uid}/recommendations/today → items 읽기
+  static Future<List<Map<String, dynamic>>> _readUserToday(String uid) async {
+    final snap = await _userTodayRef(uid).get();
+    if (!snap.exists) {
+      if (kDebugMode) print('ℹ️ no users/$uid/recommendations/today');
+      return const [];
+    }
 
-    final snap = await ref.limit(1).get();
-    if (snap.docs.isNotEmpty) return;
+    final data = snap.data() ?? {};
+    final raw = data['items'];
+    if (raw is! List) {
+      if (kDebugMode) {
+        print('⚠️ items is not List on users/$uid/today: ${raw.runtimeType}');
+      }
+      return const [];
+    }
 
-    await ref.add({
-      'items': [
-        {'id': 'wallet', 'name': '지갑', 'required': true},
-        {'id': 'umbrella', 'name': '우산', 'required': false},
-        {'id': 'airpods', 'name': '에어팟', 'required': false},
-      ],
-      'weekday': _weekdayNow(),
-      'timeslot': _timeSlotNow(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    final items = raw.whereType<Map>().map<Map<String, dynamic>>((m) {
+      return {
+        'name': (m['name'] ?? '').toString(),
+        'required': (m['required'] is bool) ? m['required'] : false,
+      };
+    }).where((m) => (m['name'] as String).isNotEmpty).toList();
+
+    if (kDebugMode) {
+      print('✅ A-schema items: $items');
+    }
+    return items;
   }
 
-  /// 오늘 요일 문자열 (mon..sun)
-  static String _weekdayNow() {
-    const map = {
-      DateTime.monday: 'mon',
-      DateTime.tuesday: 'tue',
-      DateTime.wednesday: 'wed',
-      DateTime.thursday: 'thu',
-      DateTime.friday: 'fri',
-      DateTime.saturday: 'sat',
-      DateTime.sunday: 'sun',
-    };
-    return map[DateTime.now().weekday] ?? 'mon';
+  /// B) recommendations/{docId} → predicted_missing + timestamp 읽기
+  ///    timestamp는 String(ISO8601) 또는 Firestore Timestamp 모두 허용
+  static Future<List<Map<String, dynamic>>> _readGlobalPredicted(
+      String docId, {
+        required bool onlyToday,
+      }) async {
+    final snap = await _db.collection('recommendations').doc(docId).get();
+    if (!snap.exists) {
+      if (kDebugMode) print('ℹ️ no recommendations/$docId');
+      return const [];
+    }
+
+    final data = snap.data() ?? {};
+    if (kDebugMode) {
+      print('🧩 global data keys: ${data.keys}');
+      print('   predicted_missing type: ${data['predicted_missing']?.runtimeType}');
+      print('   timestamp type: ${data['timestamp']?.runtimeType}');
+    }
+
+    // timestamp(오늘인지) 판정 — 옵션화
+    final ts = _readTs(data['timestamp']);
+    if (onlyToday) {
+      if (ts == null) {
+        if (kDebugMode) {
+          print('⚠️ timestamp null/invalid but onlyToday=true → returning []');
+        }
+        return const [];
+      }
+      if (!_isSameDay(ts, DateTime.now())) {
+        if (kDebugMode) print('ℹ️ timestamp is not today: $ts → returning []');
+        return const [];
+      }
+    } else {
+      if (ts == null) {
+        if (kDebugMode) print('ℹ️ timestamp null/invalid → proceed w/o day filter');
+      } else {
+        if (kDebugMode) print('ℹ️ timestamp exists: $ts (onlyToday=false → proceed)');
+      }
+    }
+
+    final list = (data['predicted_missing'] as List?) ?? const [];
+    final items = list
+        .map((e) => (e?.toString() ?? '').trim())
+        .where((name) => name.isNotEmpty)
+        .map((name) => {'name': name, 'required': false})
+        .toList();
+
+    if (kDebugMode) {
+      print('✅ B-schema items from predicted_missing: $items');
+    }
+    return items;
   }
 
-  /// 현재 시간대 구분 (필요시 규칙 바꿔도 됨)
-  static String _timeSlotNow() {
-    final h = DateTime.now().hour;
-    if (h < 12) return 'morning';
-    if (h < 18) return 'afternoon';
-    return 'evening';
+  /// timestamp 파싱: Firestore Timestamp | String(ISO8601) 모두 지원
+  static DateTime? _readTs(dynamic v) {
+    if (v == null) return null;
+    if (v is Timestamp) return v.toDate();
+    if (v is String) return DateTime.tryParse(v);
+    return null;
   }
+
+  static bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
 }

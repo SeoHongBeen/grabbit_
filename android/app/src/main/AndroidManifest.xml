@@ -2,19 +2,20 @@
     package="com.example.grabbit_project"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- ✅ BLE 관련 권한 추가 -->
+    <!-- ✅ BLE 및 위치, 알림 관련 권한 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
-        tools:targetApi="31"/>
+        tools:targetApi="31" />
     <uses-permission
         android:name="android.permission.BLUETOOTH_CONNECT"
-        tools:targetApi="31"/>
+        tools:targetApi="31" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <application
         android:label="grabbit_project"
-
+        android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 
         <activity
@@ -47,8 +48,8 @@
     <!-- 텍스트 처리 인텐트 사용 -->
     <queries>
         <intent>
-            <action android:name="android.intent.action.PROCESS_TEXT"/>
-            <data android:mimeType="text/plain"/>
+            <action android:name="android.intent.action.PROCESS_TEXT" />
+            <data android:mimeType="text/plain" />
         </intent>
     </queries>
 </manifest>

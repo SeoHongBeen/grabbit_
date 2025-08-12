@@ -14,18 +14,16 @@ class MainTabScreen extends StatefulWidget {
 class _MainTabScreenState extends State<MainTabScreen> {
   int _selectedIndex = 0;
 
-  final List<Widget> _pages = const [
-    ChecklistPage(),
-    RecordPage(),
-    SettingsPage(),
-  ];
+  final List<Widget> _pages = const [ChecklistPage(), RecordPage(), SettingsPage()];
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      // uid는 로그인 정보에서 가져오거나 로컬 저장된 사용자 ID 사용
-      DailySuggest.showIfNeeded(context, 'user123');
+    // 프레임 이후 실행 + State.mounted로만 체크 (context.mounted 쓰지 않음)
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+
+      await DailySuggest.showIfNeeded(context, 'qhPEkSGHK9PsfmUD4Yyg6YOp8c63');
     });
   }
 
