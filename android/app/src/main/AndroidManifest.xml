@@ -2,7 +2,6 @@
     package="com.example.grabbit_project"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- ✅ BLE 및 위치, 알림 관련 권한 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
@@ -28,7 +27,6 @@
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
 
-            <!-- Flutter UI 시작 테마 -->
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
@@ -39,13 +37,11 @@
             </intent-filter>
         </activity>
 
-        <!-- Flutter 엔진 메타데이터 -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
 
-    <!-- 텍스트 처리 인텐트 사용 -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
