@@ -23,10 +23,8 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
 
-    // 여기서 회원가입 처리 (예: 저장, 서버 전송 등)
     print('회원가입 완료: $id / $pw');
 
-    // 완료 후 로그인 화면으로 이동
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -52,7 +50,7 @@ class _SignupScreenState extends State<SignupScreen> {
             ),
             const SizedBox(height: 20),
             ElevatedButton(
-              onPressed: _signup, // ✅ 눌리게 만드는 핵심
+              onPressed: _signup,
               child: const Text('회원가입'),
             ),
           ],
