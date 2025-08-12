@@ -1,31 +1,19 @@
-// lib/screen/checklist_page.dart
-// ------------------------------------------------------------------
-// 체크리스트 화면: Firestore 추천(요일별) + 사용자 추가 물건 + BLE 연동
-// ------------------------------------------------------------------
+// 체크리스트 화면: Firestore 추천(요일별) + 사용자 추가 물건 + BLE
 
 import 'dart:convert';
-import 'dart:async'; // ✅ 하단바 자동 숨김 타이머
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
-// BLE & 유틸
 import 'package:grabbit_project/service/ble_service.dart';
 import 'package:grabbit_project/utils/record_storage_helper.dart';
-
-// 🔽 전역 추천( recommendations/{docId} ) 읽기
 import 'package:grabbit_project/service/recommendation_service.dart';
-
-// ✅ 상단 배너 알림
 import 'package:grabbit_project/service/notification_service.dart';
-
 import 'package:flutter/foundation.dart'; // kDebugMode
 
-/// (개발용) 로그인 없이도 동작하도록 쓸 수 있는 기본 UID
 const String kDevUID = 'qhPEkSGHK9PsfmUD4Yyg6YOp8c63';
 
-/// (개발용) 오늘/선택 요일 추천 아이템 시드
 Future<void> seedTodayRecommendationsOnce(String uid, int weekday) async {
   await FirebaseFirestore.instance
       .collection('users')
@@ -65,19 +53,16 @@ class _ChecklistPageState extends State<ChecklistPage> {
   String _uid = kDevUID;
   final List<_RecoItem> _recoItems = [];
 
-  // BLE 이벤트 중복 방지
-  String? _lastEvent; // "문 열림"/"문 닫힘"
-  String? _lastState; // GOING_OUT / RETURNED ...
+  String? _lastEvent;
+  String? _lastState;
   bool _suppressUntilDoorChange = false;
 
-  // 선택 요일
   String _selectedDay = DateFormat.E('ko_KR').format(DateTime.now());
 
-  // ✅ 하단 검정 바 상태
   String? _footerMessage;
   Timer? _footerTimer;
 
-  // 🔸 덮어쓰기 방지용 우선순위 & 만료시각 (높을수록 우선)
+  //덮어쓰기 방지용 우선순위 & 만료시각
   int _footerPriority = -1;
   DateTime _footerExpireAt = DateTime.now();
 
@@ -112,10 +97,10 @@ class _ChecklistPageState extends State<ChecklistPage> {
       _uid = authUid;
     }
 
-    // 1) 핸들러 먼저
+    //핸들러 먼저
     BleService().onDataReceived = _handleNotifyData;
 
-    // 2) 연결 + 전송
+    //연결 + 전송
     BleService().connect();
     BleService().sendTodayRecommendations(_uid, userIdOverride: _uid);
 
@@ -169,12 +154,10 @@ class _ChecklistPageState extends State<ChecklistPage> {
       });
     } catch (_) {}
   }
-
-  // ✅ 하단 바를 우선순위로 안전하게 세팅
+  
   void _setFooterSafely(String text, int priority, {int seconds = 6}) {
     final now = DateTime.now();
 
-    // 만료 전인데 새 우선순위가 낮으면 무시
     if (now.isBefore(_footerExpireAt) && priority < _footerPriority) {
       return;
     }
@@ -196,7 +179,6 @@ class _ChecklistPageState extends State<ChecklistPage> {
     });
   }
 
-  // ✅ 상단 배너 + 하단 검정 바 동시 표출 (IDLE은 알림/하단바 차단)
   void _handleNotifyData(String jsonStr) async {
     try {
       final Map<String, dynamic> data = jsonDecode(jsonStr);
@@ -205,7 +187,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
       final stateRaw = (data['상태'] as String? ?? 'UNKNOWN').trim();
       final state = stateRaw.toUpperCase(); // 정규화: going_out → GOING_OUT
 
-      // 루틴 전송 직후엔 문 이벤트 바뀔 때까지 무시
+      //루틴 전송 직후엔 문 상태 바뀔 때까지 무시
       if (_suppressUntilDoorChange) {
         final doorChanged = (_lastEvent == null) ? true : (_lastEvent != event);
         if (!doorChanged) return;
@@ -217,7 +199,6 @@ class _ChecklistPageState extends State<ChecklistPage> {
       _lastEvent = event;
       _lastState = state;
 
-      // UUID → 이름 정규화
       final nameToUuid = BleService.nameToUuid;
       final uuidToName = {for (final e in nameToUuid.entries) e.value: e.key};
 
@@ -230,7 +211,6 @@ class _ChecklistPageState extends State<ChecklistPage> {
       final detected = _normalize(data['감지됨']);
       final missed = _normalize(data['누락됨']);
 
-      // 기록 저장 (IDLE이어도 기록은 남김)
       RecordStorageHelper.addRecord({
         'timestamp': DateTime.now().toIso8601String(),
         'event': event,
@@ -239,7 +219,6 @@ class _ChecklistPageState extends State<ChecklistPage> {
         'missed': missed,
       });
 
-      // 체크박스 반영 (IDLE이어도 체크박스는 갱신)
       setState(() {
         for (final item in _recoItems) {
           if (detected.contains(item.name)) {
@@ -252,7 +231,6 @@ class _ChecklistPageState extends State<ChecklistPage> {
         }
       });
 
-      // 🔒 IDLE이면 여기서 알림/하단바 전부 차단하고 종료
       if (state == 'IDLE') {
         _footerTimer?.cancel();
         if (_footerMessage != null) {
@@ -261,7 +239,6 @@ class _ChecklistPageState extends State<ChecklistPage> {
         return;
       }
 
-      // ===== 멘트 구성 (배너+하단 공통) — 우선순위 부여 =====
       String footer = '';
       int priority = 0; // 기본
       final missedText = missed.join(', ');
@@ -293,7 +270,6 @@ class _ChecklistPageState extends State<ChecklistPage> {
         }
       }
 
-      // 상단 배너(미스 있을 때만) — IDLE은 위에서 이미 return
       if (missed.isNotEmpty) {
         await NotificationService.showStateBasedNotification(
           state: state,
@@ -301,7 +277,6 @@ class _ChecklistPageState extends State<ChecklistPage> {
         );
       }
 
-      // 하단 검정 바: 우선순위 기반으로만 갱신
       if (footer.isEmpty) {
         // 비우기(덮어쓰지 않음)
         _setFooterSafely('', -1, seconds: 0); // 즉시 클리어
@@ -578,7 +553,6 @@ class _ChecklistPageState extends State<ChecklistPage> {
         ],
       ),
 
-      // ✅ 하단 검정 바
       bottomNavigationBar: (_footerMessage == null || _footerMessage!.isEmpty)
           ? null
           : Container(
@@ -603,7 +577,6 @@ class _ChecklistPageState extends State<ChecklistPage> {
   }
 }
 
-/// Iterable 확장: firstWhereOrNull
 extension _FirstWhereOrNull<E> on Iterable<E> {
   E? firstWhereOrNull(bool Function(E e) test) {
     for (final e in this) {
