@@ -43,7 +43,6 @@ class _RecordPageState extends State<RecordPage> {
     return dt == null ? '알 수 없음' : DateFormat('yyyy.MM.dd HH:mm').format(dt);
   }
 
-  /// 상태 코드 → 표시 문자열 매핑
   String _displayState(String raw) {
     switch ((raw ?? '').toUpperCase()) {
       case 'GOING_OUT':
@@ -59,7 +58,6 @@ class _RecordPageState extends State<RecordPage> {
     }
   }
 
-  /// "문 열림/문 닫힘" 같은 문구는 아예 숨김
   String _sanitizeEvent(String? event) {
     if (event == null) return '';
     final e = event.replaceAll(' ', '');
@@ -76,12 +74,8 @@ class _RecordPageState extends State<RecordPage> {
     final missed = List<String>.from(record["missed"] ?? []);
     final timeStr = _formatTime(record["timestamp"] ?? "");
 
-    // 제목은 상태만 보이도록 변경 (문 열림/닫힘 제거)
+    //상태
     final titleStr = _displayState(state);
-
-    // 필요 시 다른 이벤트를 쓰고 싶다면 아래처럼 사용:
-    // final otherEvent = _sanitizeEvent(record["event"]);
-    // final titleStr = otherEvent.isEmpty ? _displayState(state) : '[$otherEvent] ${_displayState(state)}';
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
