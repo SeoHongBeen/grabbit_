@@ -1,4 +1,3 @@
-// lib/widgets/weather_header.dart
 import 'package:flutter/material.dart';
 import 'package:grabbit_project/service/weather_service.dart';
 
