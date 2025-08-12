@@ -1,9 +1,7 @@
-// lib/screen/daily_suggest.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:grabbit_project/service/recommendation_service.dart';
-
-import 'package:grabbit_project/service/ble_service.dart'; // 전송 붙일 때 사용
+import 'package:grabbit_project/service/ble_service.dart';
 
 class DailySuggest {
   static String _key(String uid, DateTime d)
@@ -17,14 +15,12 @@ class DailySuggest {
 
       final items = await RecommendationService.fetchLatest(uid);
 
-      // 아이템 없으면 표시/전송 스킵
       if (items.isEmpty) {
         await prefs.setBool(key, true);
         debugPrint('! 오늘 추천 아이템이 비어 있습니다. 전송 생략.');
         return;
       }
 
-      // 🔐 바텀시트 열기 전에 라우트가 살아있는지 점검
       final navigator = Navigator.maybeOf(context);
       if (navigator == null || !navigator.mounted) return;
 
@@ -61,7 +57,6 @@ class DailySuggest {
                     Expanded(
                       child: FilledButton.icon(
                         onPressed: () async {
-                          // BLE 전송 필요 시 여기에 호출
                           // await BleService.instance.sendRoutine(items);
                           if (Navigator.maybeOf(ctx)?.mounted ?? false) {
                             Navigator.pop(ctx);
