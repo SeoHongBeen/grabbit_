@@ -1,4 +1,3 @@
-// lib/service/ble_service.dart
 import 'dart:async';
 import 'dart:convert';
 
@@ -7,21 +6,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
-// 전역 스낵바용
 import 'package:grabbit_project/main.dart' show navigatorKey;
-// 시스템 알림
 import 'package:grabbit_project/service/notification_service.dart';
-// 알림 기록 저장
 import 'package:grabbit_project/utils/notification_storage.dart';
 
 class BleService {
-  // Singleton
   static final BleService _instance = BleService._internal();
   factory BleService() => _instance;
   BleService._internal();
 
-  // Configs
   static const String targetDeviceName = "GrabbitESP32";
   static const String SERVICE_UUID     = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
   static const String CHAR_WRITE_UUID  = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
@@ -34,36 +27,29 @@ class BleService {
   };
   static Map<String, String> get nameToUuid => Map.unmodifiable(_nameToUuid);
 
-  // BLE State
   BluetoothDevice? _device;
   BluetoothCharacteristic? _writeChar;
   BluetoothCharacteristic? _notifyChar;
   StreamSubscription<List<ScanResult>>? _scanSub;
-
-  // 조각 수신/조립
+  
   final StringBuffer _notifyBuf = StringBuffer();
   int _braceDepth = 0;
   bool _inString = false;
   bool _escape = false;
   static const int _maxAccumulatedLen = 8192;
 
-  // 디바운스
   Timer? _debounce;
   String? _lastAcceptedFullJson;
   static const Duration _minGap = Duration(milliseconds: 150);
 
-  /// 외부 콜백
   void Function(String jsonStr)? onDataReceived;
 
-  // Permissions
   Future<void> _requestPermissions() async {
     await Permission.bluetoothScan.request();
     await Permission.bluetoothConnect.request();
     await Permission.locationWhenInUse.request();
-    // Android 13+ 알림 권한은 NotificationService.initialize()에서 처리
   }
 
-  // Connect & Discover
   Future<void> connect() async {
     await _requestPermissions();
 
@@ -119,7 +105,6 @@ class BleService {
     }
   }
 
-  // Notify 수신
   void _onNotifyChunk(List<int> bytes) {
     if (bytes.isEmpty) return;
 
@@ -133,7 +118,6 @@ class BleService {
 
     _notifyBuf.write(part);
 
-    // 1) 줄바꿈으로 완성
     final full = _notifyBuf.toString();
     if (full.contains('\n')) {
       final lines = full.split('\n');
@@ -151,7 +135,6 @@ class BleService {
       return;
     }
 
-    // 2) 줄바꿈이 없으면 중괄호 깊이로 완성 판정
     _drainCompletedJsons();
   }
 
@@ -204,7 +187,6 @@ class BleService {
   bool _isDoorEvent(String? event) {
     if (event == null) return false;
     final cleaned = event.replaceAll(RegExp(r'[\s\[\]]'), '');
-    // 예: "문열림", "문닫힘", "[문 열림]" 등 모두 잡기
     return cleaned.contains('문열림') || cleaned.contains('문닫힘');
   }
 
@@ -227,8 +209,6 @@ class BleService {
         final missing  = _asStringList(data['누락됨']);
         final detected = _asStringList(data['감지됨']);
 
-        // ====== UI/알림 정책 ======
-        // 🔒 IDLE 상태면 스낵바/시스템 알림은 전부 스킵 (기록은 남김)
         if (state == 'IDLE') {
           final newItem = NotificationItem(
             message: _isDoorEvent(event) ? '' : event,
@@ -242,12 +222,10 @@ class BleService {
           return;
         }
 
-        // 1) 스낵바: 누락만 표시 (문 열림/닫힘 멘트 제거)
         if (missing.isNotEmpty) {
           _showMissingSnackBar(missing, state: state);
         }
 
-        // 2) 시스템 알림: 템플릿 기반, event 미포함
         if (missing.isNotEmpty) {
           await NotificationService.showStateBasedNotification(
             state: state,
@@ -255,7 +233,6 @@ class BleService {
           );
         }
 
-        // 3) 기록 저장: event가 문상태면 빈 문자열로 저장
         final newItem = NotificationItem(
           message: _isDoorEvent(event) ? '' : event,
           timestamp: DateTime.now(),
@@ -291,7 +268,6 @@ class BleService {
       ..showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  // Write 준비
   Future<bool> _ensureReady({Duration timeout = const Duration(seconds: 6)}) async {
     final start = DateTime.now();
     while (_writeChar == null) {
@@ -304,7 +280,6 @@ class BleService {
     return true;
   }
 
-  // 루틴 전송
   Future<void> sendRoutine(List<String> items, String userId) async {
     if (!await _ensureReady()) {
       debugPrint("❌ WRITE 캐릭터리스틱 준비 실패");
@@ -313,8 +288,8 @@ class BleService {
 
     final payload = <String, dynamic>{
       "루틴": items,
-      "사용자ID": userId,   // 정식 키
-      "사자ID": userId,     // 호환 키(임시/겸용)
+      "사용자ID": userId,
+      "사자ID": userId,    
     };
 
     final jsonStr = jsonEncode(payload);
