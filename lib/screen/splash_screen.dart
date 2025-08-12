@@ -36,11 +36,11 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      backgroundColor: Colors.black, // ✅ 배경을 검정색으로 설정
+      backgroundColor: Colors.black,
       body: Center(
         child: Image(
           image: AssetImage('lib/assets/grabbit_logo.png'),
-          width: 250, // ✅ 더 크게 (기존 150 → 250)
+          width: 250,
           height: 250,
         ),
       ),
