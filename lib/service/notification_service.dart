@@ -1,4 +1,3 @@
-// lib/service/notification_service.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -8,30 +7,24 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class NotificationService {
-  // ✅ 단일 인스턴스만 사용
   static final FlutterLocalNotificationsPlugin _plugin =
   FlutterLocalNotificationsPlugin();
 
-  // Android 채널 ID(고정)
   static const String _channelIdInstant = 'grabbit_channel_id';
   static const String _channelIdDaily = 'daily_channel_id';
 
-  // 템플릿 기본값 (설정 페이지와 동일)
   static const String _defaultGoingOut  = '앗! 챙기셨나요? 🐰 {items} · 외출 중';
   static const String _defaultReturned  = '귀가 · 외출 중 분실 감지 ⚠️ {items}';
 
-  /// 초기화
   static Future<void> initialize() async {
     tz.initializeTimeZones();
 
-    // Android init
     const AndroidInitializationSettings initAndroid =
     AndroidInitializationSettings('@mipmap/ic_launcher');
 
     const InitializationSettings initSettings =
     InitializationSettings(android: initAndroid);
 
-    // Android 13+ 권한
     if (Platform.isAndroid) {
       final android = _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
@@ -40,7 +33,6 @@ class NotificationService {
 
     await _plugin.initialize(initSettings);
 
-    // ✅ 채널 보장 생성
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     await android?.createNotificationChannel(const AndroidNotificationChannel(
@@ -57,7 +49,6 @@ class NotificationService {
     ));
   }
 
-  /// 외부에서 쓰는 즉시 알림 (알림 기록에도 남음)
   static Future<void> showNotification({
     required String title,
     required String body,
@@ -79,15 +70,11 @@ class NotificationService {
     );
   }
 
-  /// 상태/누락목록 기반 즉시 알림
-  /// state: 'GOING_OUT' | 'RETURNED' 등
-  /// ⚠️ 문 열림/닫힘 같은 이벤트 문구는 넣지 않음(요청사항 반영)
   static Future<void> showStateBasedNotification({
     required String state,
     required List<String> missed,
     String title = 'Grabbit 알림',
   }) async {
-    // 저장된 템플릿 로드
     final prefs = await SharedPreferences.getInstance();
     final goingOutTpl = prefs.getString('templateGoingOut') ?? _defaultGoingOut;
     final returnedTpl = prefs.getString('templateReturned') ?? _defaultReturned;
@@ -100,7 +87,6 @@ class NotificationService {
     } else if (state == 'RETURNED') {
       body = returnedTpl.replaceAll('{items}', items);
     } else {
-      // 다른 상태는 기본 문구 (필요 시 확장)
       body = missed.isEmpty ? '' : '감지 안 된 항목: $items';
     }
 
@@ -108,7 +94,6 @@ class NotificationService {
     await showNotification(title: title, body: body);
   }
 
-  /// 매일 오전 7시 알림
   static Future<void> scheduleDailyChecklistReminder() async {
     final prefs = await SharedPreferences.getInstance();
     final now = DateTime.now();
