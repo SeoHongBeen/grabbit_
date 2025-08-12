@@ -1,40 +1,20 @@
-// lib/service/recommendation_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
-/// Firestore 양쪽 스키마를 모두 지원:
-///  A) 기존 앱 스키마: users/{uid}/recommendations/today  { createdAt, items:[{name,required}] }
-///  B) 현재 DB 스키마: recommendations/{docId}  { predicted_missing:[String], timestamp:String|Timestamp }
-///
-/// 우선순위: A가 있으면 A 사용 → 없으면 B 사용.
-/// B의 docId는 기본 'grabbit-user'를 본다(필요하면 파라미터로 바꿔 호출).
 class RecommendationService {
   static final _db = FirebaseFirestore.instance;
 
-  /// 외부에서 바꾸고 싶으면 이 값만 수정하거나, fetchLatest 호출 시 인자로 넘겨.
   static const String _defaultGlobalDocId = 'grabbit-user';
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // Public API
-  // ────────────────────────────────────────────────────────────────────────────
-
-  /// 오늘 추천(이름/required)을 가져온다.
-  /// 1) users/{uid}/recommendations/today → items 배열
-  /// 2) (비어있으면) recommendations/{globalDocId} → predicted_missing 배열
-  ///
-  /// [onlyToday]가 true면 timestamp가 오늘이 아닐 경우 빈 배열 반환.
-  /// false면 오늘이 아니어도 최신 예측을 사용.
   static Future<List<Map<String, dynamic>>> fetchLatest(
       String uid, {
         String? globalDocId,
         bool onlyToday = true,
       }) async {
     try {
-      // 1) 기존 앱 스키마 우선
       final a = await _readUserToday(uid);
       if (a.isNotEmpty) return a;
 
-      // 2) 글로벌(현재 DB) 스키마 폴백
       final docId = (globalDocId ?? _defaultGlobalDocId).trim();
       final b = await _readGlobalPredicted(docId, onlyToday: onlyToday);
       return b;
@@ -46,7 +26,6 @@ class RecommendationService {
     }
   }
 
-  /// 이름 배열만 뽑아서 쓰기 좋은 헬퍼.
   static Future<List<String>> fetchLatestNames(
       String uid, {
         String? globalDocId,
@@ -63,7 +42,6 @@ class RecommendationService {
         .toList();
   }
 
-  /// 기존 앱 스키마(A안)에 오늘 문서가 없으면 만들어 준다.
   static Future<void> pushIfNotExists(
       String uid,
       List<Map<String, dynamic>> items,
@@ -89,10 +67,6 @@ class RecommendationService {
     }
   }
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // Internal helpers
-  // ────────────────────────────────────────────────────────────────────────────
-
   static DocumentReference<Map<String, dynamic>> _userTodayRef(String uid) {
     return _db
         .collection('users')
@@ -101,7 +75,6 @@ class RecommendationService {
         .doc('today');
   }
 
-  /// A) users/{uid}/recommendations/today → items 읽기
   static Future<List<Map<String, dynamic>>> _readUserToday(String uid) async {
     final snap = await _userTodayRef(uid).get();
     if (!snap.exists) {
@@ -131,8 +104,6 @@ class RecommendationService {
     return items;
   }
 
-  /// B) recommendations/{docId} → predicted_missing + timestamp 읽기
-  ///    timestamp는 String(ISO8601) 또는 Firestore Timestamp 모두 허용
   static Future<List<Map<String, dynamic>>> _readGlobalPredicted(
       String docId, {
         required bool onlyToday,
@@ -150,7 +121,6 @@ class RecommendationService {
       print('   timestamp type: ${data['timestamp']?.runtimeType}');
     }
 
-    // timestamp(오늘인지) 판정 — 옵션화
     final ts = _readTs(data['timestamp']);
     if (onlyToday) {
       if (ts == null) {
@@ -184,7 +154,6 @@ class RecommendationService {
     return items;
   }
 
-  /// timestamp 파싱: Firestore Timestamp | String(ISO8601) 모두 지원
   static DateTime? _readTs(dynamic v) {
     if (v == null) return null;
     if (v is Timestamp) return v.toDate();
