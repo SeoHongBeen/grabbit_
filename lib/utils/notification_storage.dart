@@ -1,7 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
-/// 알림 항목 구조 정의
 class NotificationItem {
   final String message;
   final DateTime timestamp;
@@ -47,18 +46,15 @@ class NotificationItem {
   }
 }
 
-/// 알림 저장소 기능 클래스
 class NotificationStorage {
   static const _key = 'notification_items';
 
-  /// 알림 추가
   static Future<void> addNotification(NotificationItem newItem) async {
     final items = await loadNotifications();
     items.add(newItem);
     await saveNotifications(items);
   }
 
-  /// 알림 리스트 불러오기
   static Future<List<NotificationItem>> loadNotifications() async {
     final prefs = await SharedPreferences.getInstance();
     final jsonStr = prefs.getString(_key);
@@ -66,20 +62,17 @@ class NotificationStorage {
     return NotificationItem.decodeList(jsonStr);
   }
 
-  /// 전체 알림 저장
   static Future<void> saveNotifications(List<NotificationItem> items) async {
     final prefs = await SharedPreferences.getInstance();
     final encoded = NotificationItem.encodeList(items);
     await prefs.setString(_key, encoded);
   }
 
-  /// 알림 전체 삭제
   static Future<void> clearNotifications() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key);
   }
 
-  /// 특정 알림 삭제
   static Future<void> deleteNotification(NotificationItem targetItem) async {
     final items = await loadNotifications();
     items.removeWhere((item) =>
