@@ -6,7 +6,6 @@ class ChecklistItem {
   bool isSuggested;
   List<String> routineDays;
 
-  // 🔽 추가: BLE UUID
   String? bleUuid;
 
   ChecklistItem({
@@ -16,7 +15,7 @@ class ChecklistItem {
     this.isRoutine = false,
     this.isSuggested = false,
     this.routineDays = const [],
-    this.bleUuid, // 🔽 생성자에 추가
+    this.bleUuid,
   });
 
   Map<String, dynamic> toJson() {
@@ -27,7 +26,7 @@ class ChecklistItem {
       'isRoutine': isRoutine,
       'isSuggested': isSuggested,
       'routineDays': routineDays,
-      'bleUuid': bleUuid, // 🔽 저장용
+      'bleUuid': bleUuid,
     };
   }
 
@@ -42,7 +41,7 @@ class ChecklistItem {
           ?.map((e) => e.toString())
           .toList() ??
           [],
-      bleUuid: json['bleUuid'] as String?, // 🔽 불러오기
+      bleUuid: json['bleUuid'] as String?,
     );
   }
 }
