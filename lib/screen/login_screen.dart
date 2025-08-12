@@ -39,8 +39,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } else {
       await prefs.remove('autoLogin');
     }
-
-    // 실제 로그인 로직 생략하고 바로 이동
+    
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (context) => const MainTabScreen()),
