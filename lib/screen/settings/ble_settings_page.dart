@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:grabbit_project/utils/shared_preferences_helper.dart';
-import 'package:grabbit_project/models/ble_tag.dart'; // ✅ BleTag 외부 모델로 사용
+import 'package:grabbit_project/models/ble_tag.dart';
 
 class BleSettingsPage extends StatefulWidget {
   const BleSettingsPage({super.key});
@@ -18,7 +18,7 @@ class _BleSettingsPageState extends State<BleSettingsPage> {
   @override
   void initState() {
     super.initState();
-    _loadTags(); // ✅ 불러오기
+    _loadTags();
   }
 
   void _loadTags() async {
@@ -41,7 +41,7 @@ class _BleSettingsPageState extends State<BleSettingsPage> {
         _bleTags.add(BleTag(name: name, uuid: uuid));
         _nameController.clear();
         _uuidController.clear();
-        _saveTags(); // ✅ 저장
+        _saveTags(); //저장
       });
     }
   }
@@ -49,14 +49,14 @@ class _BleSettingsPageState extends State<BleSettingsPage> {
   void _deleteTag(BleTag tag) {
     setState(() {
       _bleTags.remove(tag);
-      _saveTags(); // ✅ 저장
+      _saveTags(); //저장
     });
   }
 
   void _editTag(BleTag tag, String newName) {
     setState(() {
       tag.name = newName;
-      _saveTags(); // ✅ 저장
+      _saveTags(); //저장
     });
   }
 
